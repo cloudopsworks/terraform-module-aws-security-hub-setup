@@ -32,3 +32,4 @@ resource "aws_securityhub_finding_aggregator" "this" {
   linking_mode      = try(var.settings.aggregator.linking_mode, "ALL_REGIONS")
   specified_regions = try(var.settings.aggregator.regions, null)
 }
+
