@@ -18,7 +18,7 @@ resource "aws_securityhub_organization_admin_account" "this" {
 
 resource "aws_securityhub_organization_configuration" "this" {
   depends_on            = [aws_securityhub_organization_admin_account.this]
-  count                 = try(var.settings.organization.enabled, false) || try(var.settings.organization.delegated, false) ? 1 : 0
+  count                 = try(var.settings.organization.enabled, false) ? 1 : 0
   auto_enable           = try(var.settings.organization.auto_enable, false)
   auto_enable_standards = try(var.settings.organization.auto_enable_standards, null)
   dynamic "organization_configuration" {
