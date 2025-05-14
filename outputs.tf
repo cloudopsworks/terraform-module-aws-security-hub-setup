@@ -5,5 +5,5 @@
 #
 
 output "securityhub_arn" {
-  value = aws_securityhub_account.this.arn
+  value = try(aws_securityhub_account.this[0].arn, null)
 }
