@@ -11,7 +11,7 @@ resource "aws_securityhub_account" "this" {
 }
 
 resource "aws_securityhub_organization_admin_account" "this" {
-  count            = var.organization_account_id != "" ? 1 : 0
+  count            = var.organization_account_id != "" && var.organization_account_id != data.aws_caller_identity.current.account_id ? 1 : 0
   admin_account_id = var.organization_account_id
 }
 
