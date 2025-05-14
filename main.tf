@@ -5,13 +5,14 @@
 #
 
 resource "aws_securityhub_account" "this" {
+  count                     = try(var.settings.organization.enabled, false) ? 0 : 1
   enable_default_standards  = try(var.settings.enable_default_standards, null)
   control_finding_generator = try(var.settings.control_finding_generator, null)
   auto_enable_controls      = try(var.settings.auto_enable_controls, null)
 }
 
 resource "aws_securityhub_organization_admin_account" "this" {
-  count            = var.organization_account_id != "" ? 1 : 0
+  count            = var.organization_account_id != "" && var.organization_account_id != data.aws_caller_identity.current.account_id ? 1 : 0
   admin_account_id = var.organization_account_id
 }
 
