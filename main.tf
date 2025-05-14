@@ -35,3 +35,9 @@ resource "aws_securityhub_finding_aggregator" "this" {
   specified_regions = try(var.settings.aggregator.regions, null)
 }
 
+resource "aws_organizations_delegated_administrator" "this" {
+  count             = var.organization_account_id != "" && var.organization_account_id != data.aws_caller_identity.current.account_id ? 1 : 0
+  account_id        = var.organization_account_id
+  service_principal = "securityhub.amazonaws.com"
+}
+
