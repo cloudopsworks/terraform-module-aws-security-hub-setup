@@ -12,7 +12,7 @@ resource "aws_securityhub_account" "this" {
 }
 
 resource "aws_securityhub_organization_admin_account" "this" {
-  count            = var.organization_account_id != "" && var.organization_account_id != data.aws_caller_identity.current.account_id ? 1 : 0
+  count            = try(var.settings.organization.delegated, false) ? 1 : 0
   admin_account_id = var.organization_account_id
 }
 
@@ -34,4 +34,3 @@ resource "aws_securityhub_finding_aggregator" "this" {
   linking_mode      = try(var.settings.aggregator.linking_mode, "ALL_REGIONS")
   specified_regions = try(var.settings.aggregator.regions, null)
 }
-
