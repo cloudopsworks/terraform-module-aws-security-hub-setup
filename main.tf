@@ -34,3 +34,85 @@ resource "aws_securityhub_finding_aggregator" "this" {
   linking_mode      = try(var.settings.aggregator.linking_mode, "ALL_REGIONS")
   specified_regions = try(var.settings.aggregator.regions, null)
 }
+
+resource "aws_securityhub_configuration_policy" "central_policy" {
+  depends_on = [aws_securityhub_organization_configuration.this]
+  for_each = {
+    for item in try(var.settings.configuration_policies, []) : item.name => item
+    if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL"
+  }
+  name        = each.value.name
+  description = try(each.value.description, null)
+  configuration_policy {
+    service_enabled       = each.value.policy.service_enabled
+    enabled_standard_arns = try(each.value.policy.enabled_standard_arns, null)
+    dynamic "security_controls_configuration" {
+      for_each = length(try(each.value.policy.controls_configuration, {})) > 0 ? [1] : []
+      content {
+        disabled_control_identifiers = try(each.value.policy.controls_configuration.disabled_control_identifiers, null)
+        enabled_control_identifiers  = try(each.value.policy.controls_configuration.enabled_control_identifiers, null)
+        dynamic "security_control_custom_parameter" {
+          for_each = try(each.value.policy.controls_configuration.custom_parameters, [])
+          content {
+            security_control_id = security_control_custom_parameter.value.security_control_id
+            dynamic "parameter" {
+              for_each = try(security_control_custom_parameter.value.parameters, [])
+              content {
+                name       = parameter.value.name
+                value_type = parameter.value.value_type
+                dynamic "bool" {
+                  for_each = try(parameter.value.bool, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.bool
+                  }
+                }
+                dynamic "double" {
+                  for_each = try(parameter.value.double, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.double
+                  }
+                }
+                dynamic "enum" {
+                  for_each = try(parameter.value.enum, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.enum
+                  }
+                }
+                dynamic "enum_list" {
+                  for_each = try(parameter.value.enum_list, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.enum_list
+                  }
+                }
+                dynamic "int" {
+                  for_each = try(parameter.value.int, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.int
+                  }
+                }
+                dynamic "int_list" {
+                  for_each = try(parameter.value.int_list, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.int_list
+                  }
+                }
+                dynamic "string" {
+                  for_each = try(parameter.value.string, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.string
+                  }
+                }
+                dynamic "string_list" {
+                  for_each = try(parameter.value.string_list, null) != null ? [1] : []
+                  content {
+                    value = parameter.value.string_list
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
