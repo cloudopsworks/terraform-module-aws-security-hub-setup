@@ -123,7 +123,7 @@ resource "aws_securityhub_configuration_policy_association" "central_policy_org"
     if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.org_enabled, false)
   }
   policy_id = aws_securityhub_configuration_policy.central_policy[each.value.name].id
-  target_id = data.aws_organizations_organization.current.id
+  target_id = data.aws_organizations_organization.current.roots[0].id
 }
 
 resource "aws_securityhub_configuration_policy_association" "central_policy" {
