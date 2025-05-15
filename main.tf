@@ -44,15 +44,15 @@ resource "aws_securityhub_configuration_policy" "central_policy" {
   name        = each.value.name
   description = try(each.value.description, null)
   configuration_policy {
-    service_enabled       = each.value.policy.service_enabled
-    enabled_standard_arns = try(each.value.policy.enabled_standard_arns, null)
+    service_enabled       = each.value.service_enabled
+    enabled_standard_arns = try(each.value.enabled_standard_arns, null)
     dynamic "security_controls_configuration" {
-      for_each = length(try(each.value.policy.controls_configuration, {})) > 0 ? [1] : []
+      for_each = length(try(each.value.controls_configuration, {})) > 0 ? [1] : []
       content {
-        disabled_control_identifiers = try(each.value.policy.controls_configuration.disabled_control_identifiers, null)
-        enabled_control_identifiers  = try(each.value.policy.controls_configuration.enabled_control_identifiers, null)
+        disabled_control_identifiers = try(each.value.controls_configuration.disabled_control_identifiers, null)
+        enabled_control_identifiers  = try(each.value.controls_configuration.enabled_control_identifiers, null)
         dynamic "security_control_custom_parameter" {
-          for_each = try(each.value.policy.controls_configuration.custom_parameters, [])
+          for_each = try(each.value.controls_configuration.custom_parameters, [])
           content {
             security_control_id = security_control_custom_parameter.value.security_control_id
             dynamic "parameter" {
