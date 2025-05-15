@@ -117,6 +117,15 @@ resource "aws_securityhub_configuration_policy" "central_policy" {
   }
 }
 
+resource "aws_securityhub_configuration_policy_association" "central_policy_org" {
+  for_each = {
+    for item in try(var.settings.configuration_policies, []) : item.name => item
+    if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.org_enabled, false)
+  }
+  policy_id = aws_securityhub_configuration_policy.central_policy[each.value.name].id
+  target_id = data.aws_organizations_organization.current.id
+}
+
 resource "aws_securityhub_configuration_policy_association" "central_policy" {
   for_each = merge([
     for item in try(var.settings.configuration_policies, []) : {
@@ -124,7 +133,7 @@ resource "aws_securityhub_configuration_policy_association" "central_policy" {
         config_name = item.name
         account_id  = account
       }
-    } if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL"
+    } if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.org_enabled, false) == false
   ]...)
   policy_id = aws_securityhub_configuration_policy.central_policy[each.value.config_name].id
   target_id = each.value.account_id
