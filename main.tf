@@ -120,21 +120,53 @@ resource "aws_securityhub_configuration_policy" "central_policy" {
 resource "aws_securityhub_configuration_policy_association" "central_policy_org" {
   for_each = {
     for item in try(var.settings.configuration_policies, []) : item.name => item
-    if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.org_enabled, false)
+    if try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.associations.root, true)
   }
   policy_id = aws_securityhub_configuration_policy.central_policy[each.value.name].id
   target_id = data.aws_organizations_organization.current.roots[0].id
 }
 
-resource "aws_securityhub_configuration_policy_association" "central_policy" {
+resource "aws_securityhub_configuration_policy_association" "central_policy_acct" {
   for_each = merge([
     for item in try(var.settings.configuration_policies, []) : {
       for account in var.settings.organization.account_ids : "${item.name}-${account}" => {
         config_name = item.name
         account_id  = account
       }
-    } if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.org_enabled, false) == false
+    } if try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.associations.accounts, false)
   ]...)
   policy_id = aws_securityhub_configuration_policy.central_policy[each.value.config_name].id
   target_id = each.value.account_id
+}
+
+data "aws_organizations_organizational_unit" "org_unit" {
+  for_each  = toset(try(var.settings.organization.org_unit_names, []))
+  parent_id = data.aws_organizations_organization.current.roots[0].id
+  name      = each.value
+}
+
+resource "aws_securityhub_configuration_policy_association" "central_policy_orgunit" {
+  for_each = merge([
+    for item in try(var.settings.configuration_policies, []) : {
+      for org_unit in var.settings.organization.org_unit_ids : "${item.name}-${org_unit}" => {
+        config_name = item.name
+        org_unit_id = org_unit
+      }
+    } if try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.associations.org_units, false)
+  ]...)
+  policy_id = aws_securityhub_configuration_policy.central_policy[each.value.config_name].id
+  target_id = each.value.org_unit_id
+}
+
+resource "aws_securityhub_configuration_policy_association" "central_policy_orgunit_name" {
+  for_each = merge([
+    for item in try(var.settings.configuration_policies, []) : {
+      for org_unit in var.settings.organization.org_unit_names : "${item.name}-${org_unit}" => {
+        config_name = item.name
+        org_unit_id = data.aws_organizations_organizational_unit.org_unit[org_unit].id
+      }
+    } if try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.associations.org_units, false)
+  ]...)
+  policy_id = aws_securityhub_configuration_policy.central_policy[each.value.config_name].id
+  target_id = each.value.org_unit_id
 }
