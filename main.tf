@@ -129,7 +129,7 @@ resource "aws_securityhub_configuration_policy_association" "central_policy_org"
 resource "aws_securityhub_configuration_policy_association" "central_policy_acct" {
   for_each = merge([
     for item in try(var.settings.configuration_policies, []) : {
-      for account in var.settings.organization.account_ids : "${item.name}-${account}" => {
+      for account in try(var.settings.organization.account_ids, []) : "${item.name}-${account}" => {
         config_name = item.name
         account_id  = account
       }
@@ -148,7 +148,7 @@ data "aws_organizations_organizational_unit" "org_unit" {
 resource "aws_securityhub_configuration_policy_association" "central_policy_orgunit" {
   for_each = merge([
     for item in try(var.settings.configuration_policies, []) : {
-      for org_unit in var.settings.organization.org_unit_ids : "${item.name}-${org_unit}" => {
+      for org_unit in try(var.settings.organization.org_unit_ids, []) : "${item.name}-${org_unit}" => {
         config_name = item.name
         org_unit_id = org_unit
       }
@@ -161,7 +161,7 @@ resource "aws_securityhub_configuration_policy_association" "central_policy_orgu
 resource "aws_securityhub_configuration_policy_association" "central_policy_orgunit_name" {
   for_each = merge([
     for item in try(var.settings.configuration_policies, []) : {
-      for org_unit in var.settings.organization.org_unit_names : "${item.name}-${org_unit}" => {
+      for org_unit in try(var.settings.organization.org_unit_names, []) : "${item.name}-${org_unit}" => {
         config_name = item.name
         org_unit_id = data.aws_organizations_organizational_unit.org_unit[org_unit].id
       }
