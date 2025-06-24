@@ -5,7 +5,7 @@
 #
 
 resource "aws_securityhub_account" "this" {
-  count                     = try(var.settings.organization.enabled, false) ? 0 : 1
+  #count                     = try(var.settings.organization.enabled, false) ? 0 : 1
   enable_default_standards  = try(var.settings.enable_default_standards, null)
   control_finding_generator = try(var.settings.control_finding_generator, null)
   auto_enable_controls      = try(var.settings.auto_enable_controls, null)
