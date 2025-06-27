@@ -11,20 +11,172 @@ copyrights:
 github_repo: cloudopsworks/terraform-module-aws-security-hub-setup
 
 description: |-
-  VPC Module for setting up transit gateway with ResourceAccessMananger support.
+  AWS Security Hub Setup Module for managing Security Hub configuration, enabling security standards, and configuring aggregation across multiple AWS accounts and regions.
 
 # Introduction to the project
 introduction: |-
-#  This is an introduction.
+  This Terraform module facilitates the setup and configuration of AWS Security Hub, enabling centralized security monitoring and compliance management across your AWS organization. It supports:
+
+  - Security Hub enablement and configuration
+  - Security standards activation and management
+  - Cross-region aggregation setup
+  - Multi-account configuration
+  - Custom security controls and findings
 
 # How to use this project
 usage: |-
+  ## Terragrunt Configuration
+  ```hcl
+  include {
+    path = find_in_parent_folders()
+  }
+
+  terraform {
+    source = "git::https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup.git?ref=v1.0.0"
+  }
+
+  inputs = {
+    enabled = true
+    admin_account_id = "123456789012"
+    member_accounts = [
+      "987654321098",
+      "456789012345"
+    ]
+    standards_enabled = {
+      aws-foundational = true
+      pci-dss = true
+      cis-aws-foundations-benchmark = true
+    }
+    findings_notification = {
+      enabled = true
+      sns_topic_arn = "arn:aws:sns:region:account-id:topic-name"
+    }
+  }
+  ```
+
+  ## Variables Reference
+  | Variable | Type | Description | Required |
+  |----------|------|-------------|-----------|
+  | enabled | bool | Enable/disable Security Hub | Yes |
+  | admin_account_id | string | AWS account ID for Security Hub administrator | Yes |
+  | member_accounts | list(string) | List of member account IDs to be configured | No |
+  | standards_enabled | map(bool) | Security standards to enable | No |
+  | findings_notification | map(any) | Notification configuration for findings | No |
+  | settings | map(any) | Security Hub configuration settings | No |
+
+  ## Settings Variable Structure
+  The `settings` variable accepts a YAML structure with the following format:
+
+  ```yaml
+  settings:
+    control_finding_generator: "STANDARD_CONTROL"
+    enable_default_standards: true|false
+    organization:
+      enabled: true|false
+      auto_enable: true|false
+      auto_enable_standards: "NONE"|"ALL"
+      configuration_type: "CENTRAL"|"LOCAL"
+      account_ids:
+        - "123456789012"
+        - "098765432109"
+      org_unit_ids:
+        - "ou-1234-5678"
+      org_unit_names:
+        - "Development"
+    aggregator:
+      enabled: true|false
+      linking_mode: "ALL_REGIONS"|"SPECIFIED_REGIONS"
+      regions:
+        - "us-west-2"
+        - "us-east-2"
+    standards_controls: []
+    configuration_policies:
+      - name: "policy_name"
+        description: "Policy description"
+        service_enabled: true|false
+        enabled_standard_arns:
+          - "arn:aws:securityhub:us-west-2::standards/standard_name"
+        controls_configuration:
+          enabled_control_identifiers:
+            - "control_id_1"
+            - "control_id_2"
+          disabled_control_identifiers:
+            - "control_id_3"
+            - "control_id_4"
+        custom_parameters:
+          - security_control_id: "control_id_1"
+            parameters:
+              - name: "parameter_name"
+                value_type: bool|double|enum|enum_list|int|int_list|string|string_list
+                bool: <bool value>
+                double: <double value>
+                enum: <enum value>
+                enum_list: [<enum value1>, <enum value2>]
+                int: <int value>
+                int_list: [<int value1>, <int value2>]
+                string: <string value>
+                string_list: [<string value1>, <string value2>]
+        associations:
+          root: true|false
+          accounts: true|false
+          org_units: true|false
+  ```
 
 # Example usage
 examples: |-
+  ## Basic Setup
+  ```hcl
+  module "security_hub" {
+    source = "cloudopsworks/security-hub-setup/aws"
+    version = "1.0.0"
+
+    enabled = true
+    admin_account_id = "123456789012"
+  }
+  ```
+
+  ## Multi-Account Configuration
+  ```hcl
+  module "security_hub_org" {
+    source = "cloudopsworks/security-hub-setup/aws"
+    version = "1.0.0"
+
+    enabled = true
+    admin_account_id = "123456789012"
+    member_accounts = [
+      "987654321098",
+      "456789012345"
+    ]
+    standards_enabled = {
+      aws-foundational = true
+      pci-dss = true
+    }
+  }
+  ```
 
 # How to get started quickly
 quickstart: |-
+  1. Add the module to your Terragrunt configuration:
+     ```hcl
+     terraform {
+       source = "git::https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup.git?ref=v1.0.0"
+     }
+     ```
+
+  2. Configure basic settings:
+     ```hcl
+     inputs = {
+       enabled = true
+       admin_account_id = "your-admin-account-id"
+     }
+     ```
+
+  3. Initialize and apply:
+     ```bash
+     terragrunt init
+     terragrunt plan
+     terragrunt apply
+     ```
 
 include:
   - "docs/targets.md"
