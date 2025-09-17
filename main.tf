@@ -136,7 +136,7 @@ resource "aws_securityhub_configuration_policy_association" "central_policy_acct
         config_name = item.name
         account_id  = account
       }
-    } if try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.associations.accounts, false)
+    } if try(item.associations.accounts, false)
   ]...)
   policy_id = aws_securityhub_configuration_policy.central_policy[each.value.config_name].id
   target_id = each.value.account_id
