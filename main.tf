@@ -20,7 +20,7 @@ resource "aws_securityhub_organization_admin_account" "this" {
 }
 
 resource "aws_securityhub_organization_configuration" "this" {
-  depends_on            = [aws_securityhub_organization_admin_account.this]
+  depends_on            = [aws_securityhub_organization_admin_account.this, aws_securityhub_finding_aggregator.this]
   count                 = try(var.settings.organization.enabled, false) ? 1 : 0
   auto_enable           = try(var.settings.organization.auto_enable, false)
   auto_enable_standards = try(var.settings.organization.auto_enable_standards, null)
