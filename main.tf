@@ -42,7 +42,7 @@ resource "aws_securityhub_configuration_policy" "central_policy" {
   depends_on = [aws_securityhub_organization_configuration.this]
   for_each = {
     for item in try(var.settings.configuration_policies, []) : item.name => item
-    if try(var.settings.aggregator.enabled, false) && try(var.settings.organization.configuration_type, "") == "CENTRAL"
+    if try(var.settings.organization.configuration_type, "") == "CENTRAL"
   }
   name        = each.value.name
   description = try(each.value.description, null)
