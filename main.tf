@@ -1,11 +1,23 @@
 ##
-# (c) 2021-2025
+# (c) 2021-2026
 #     Cloud Ops Works LLC - https://cloudops.works/
 #     Find us on:
 #       GitHub: https://github.com/cloudopsworks
 #       WebSite: https://cloudops.works
 #     Distributed Under Apache v2.0 License
 #
+
+locals {
+  securityhub_central_configuration_enabled = try(var.settings.organization.configuration_type, "") == "CENTRAL"
+  securityhub_uses_organization_root = local.securityhub_central_configuration_enabled && (
+    anytrue([for item in try(var.settings.configuration_policies, []) : try(item.associations.root, true)]) ||
+    length(try(var.settings.organization.org_unit_names, [])) > 0
+  )
+}
+
+data "aws_organizations_organization" "current" {
+  count = local.securityhub_uses_organization_root ? 1 : 0
+}
 
 resource "aws_securityhub_account" "this" {
   #count                     = try(var.settings.organization.enabled, false) ? 0 : 1
@@ -126,7 +138,7 @@ resource "aws_securityhub_configuration_policy_association" "central_policy_org"
     if try(var.settings.organization.configuration_type, "") == "CENTRAL" && try(item.associations.root, true)
   }
   policy_id = aws_securityhub_configuration_policy.central_policy[each.value.name].id
-  target_id = data.aws_organizations_organization.current.roots[0].id
+  target_id = data.aws_organizations_organization.current[0].roots[0].id
 }
 
 resource "aws_securityhub_configuration_policy_association" "central_policy_acct" {
@@ -143,8 +155,8 @@ resource "aws_securityhub_configuration_policy_association" "central_policy_acct
 }
 
 data "aws_organizations_organizational_unit" "org_unit" {
-  for_each  = toset(try(var.settings.organization.org_unit_names, []))
-  parent_id = data.aws_organizations_organization.current.roots[0].id
+  for_each  = local.securityhub_central_configuration_enabled ? toset(try(var.settings.organization.org_unit_names, [])) : toset([])
+  parent_id = data.aws_organizations_organization.current[0].roots[0].id
   name      = each.value
 }
 
