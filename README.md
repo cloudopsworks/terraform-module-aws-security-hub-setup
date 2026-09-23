@@ -12,10 +12,13 @@
 
 # Terraform AWS Security Hub Setup Module
 
+ [![Latest Release](https://img.shields.io/github/release/cloudopsworks/terraform-module-aws-security-hub-setup.svg?style=for-the-badge)](https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup/releases/latest) [![Last Updated](https://img.shields.io/github/last-commit/cloudopsworks/terraform-module-aws-security-hub-setup.svg?style=for-the-badge)](https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup/commits)
 
 
-
-AWS Security Hub Setup Module for managing Security Hub configuration, enabling security standards, and configuring aggregation across multiple AWS accounts and regions.
+Terraform/Terragrunt module that enables and configures AWS Security Hub for a single account or an entire
+AWS Organization: delegated administration, organization (LOCAL or CENTRAL) configuration, cross-region
+finding aggregation, standards subscriptions with per-control overrides, and central configuration policies
+associated to the organization root, organizational units, or individual accounts.
 
 
 ---
@@ -45,13 +48,49 @@ We have [*lots of terraform modules*][terraform_modules] that are Open Source an
 
 ## Introduction
 
-This Terraform module facilitates the setup and configuration of AWS Security Hub, enabling centralized security monitoring and compliance management across your AWS organization. It supports:
+AWS Security Hub aggregates security findings and runs automated compliance checks (AWS Foundational
+Security Best Practices, CIS AWS Foundations Benchmark, PCI DSS, NIST SP 800-53, ...) across your
+accounts and regions. This module drives the complete Security Hub lifecycle from a single, YAML-friendly
+`settings` object so that every account in the organization is configured with the same Terragrunt pattern.
 
-- Security Hub enablement and configuration
-- Security standards activation and management
-- Cross-region aggregation setup
-- Multi-account configuration
-- Custom security controls and findings
+### Features
+
+| Capability | Resources | Controlled by |
+|------------|-----------|---------------|
+| Enable Security Hub in the account/region | `aws_securityhub_account` | always created; `settings.enable_default_standards`, `settings.control_finding_generator`, `settings.auto_enable_controls` |
+| Delegated administrator | `aws_securityhub_organization_admin_account` | `settings.organization.delegated` + `organization_account_id` |
+| Organization configuration (LOCAL / CENTRAL) | `aws_securityhub_organization_configuration` | `settings.organization.enabled`, `configuration_type`, `auto_enable`, `auto_enable_standards` |
+| Cross-region finding aggregation | `aws_securityhub_finding_aggregator` | `settings.aggregator` |
+| Standards subscriptions + control overrides | `aws_securityhub_standards_subscription`, `aws_securityhub_standards_control_association` | `settings.standards_controls` |
+| Central configuration policies | `aws_securityhub_configuration_policy` | `settings.configuration_policies` (requires `configuration_type: CENTRAL`) |
+| Policy associations (root / OU / account) | `aws_securityhub_configuration_policy_association` | `settings.configuration_policies[].associations` + `settings.organization.account_ids` / `org_unit_ids` / `org_unit_names` |
+
+### Deployment topology
+
+Security Hub organization setup spans two accounts. Deploy this module once per role:
+
+| Step | Account | Region | Purpose | Key settings |
+|------|---------|--------|---------|--------------|
+| 1 | Organizations management account | home region | Register the delegated administrator | `organization.delegated: true`, `organization_account_id` |
+| 2 | Delegated administrator (e.g. Security/Audit) | home region | Aggregator, organization configuration, central policies | `aggregator`, `organization.enabled`, `organization.configuration_type`, `configuration_policies` |
+| 3 (optional) | Any account using LOCAL configuration | each region | Per-account standards and control overrides | `standards_controls` |
+
+### Behaviour notes
+
+- `aws_securityhub_account` is always created, so the module enables Security Hub in every account/region where it is applied.
+- `configuration_policies` and their associations are only created when `settings.organization.configuration_type` is `CENTRAL`.
+- Central configuration requires the finding aggregator in the home region, `organization.auto_enable: false`, and `organization.auto_enable_standards: "NONE"` (AWS API constraints).
+- `org_unit_names` are resolved to IDs through AWS Organizations and must be **direct children of the organization root**.
+- Policy associations default to the organization root (`associations.root: true`). Set `root: false` and enable `accounts` and/or `org_units` to target narrower scopes.
+- Security Hub control checks rely on AWS Config recording being enabled in each account and region.
+
+### Requirements
+
+| Name | Version |
+|------|---------|
+| Terraform / OpenTofu | >= 1.3 |
+| hashicorp/aws provider | ~> 6.35 |
+| Terragrunt | recent release with `scaffold` support |
 
 ## Usage
 
@@ -60,158 +99,295 @@ This Terraform module facilitates the setup and configuration of AWS Security Hu
 Instead pin to the release tag (e.g. `?ref=vX.Y.Z`) of one of our [latest releases](https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup/releases).
 
 
-## Terragrunt Configuration
+## Scaffold a new deployment
+
+Create the deployment directory inside your Terragrunt hierarchy and scaffold the module into it.
+Scaffold renders `.boilerplate/` from this repository into the current directory.
+
+```sh
+# 1. Create and enter the target deployment directory
+mkdir -p <environment>/<region>/<spoke>/security-hub
+cd <environment>/<region>/<spoke>/security-hub
+
+# 2. Scaffold the module (do NOT use --working-dir)
+terragrunt scaffold github.com/cloudopsworks/terraform-module-aws-security-hub-setup
+
+# 3. Edit inputs.yaml with deployment-specific values
+#    (all keys and comments are pre-populated from .boilerplate/inputs.yaml)
+vi inputs.yaml
+
+# 4. Plan and apply
+terragrunt plan
+terragrunt apply
+```
+
+Scaffold asks for:
+
+| Prompt | Type | Default | Description |
+|--------|------|---------|-------------|
+| `is_hub` | bool | `false` | Whether the deployment is a hub configuration |
+| `tags` | map | `{}` | Tags written to `local-tags.json` |
+
+and writes three files: `terragrunt.hcl`, `inputs.yaml`, and `local-tags.json`.
+
+## Generated `inputs.yaml`
+
+`is_hub`, `spoke_def`, `org` and `extra_tags` are supplied by the Terragrunt hierarchy (`spoke-inputs.yaml`,
+`env-inputs.yaml` and the merged tag files) and are **not** set in `inputs.yaml`.
+
+```yaml
+# (Optional) AWS account ID designated as the Security Hub delegated administrator.
+# Only used when settings.organization.delegated is true (deploy from the Organizations management account).
+# Default: "" (12-digit account ID, e.g. "123456789012").
+#organization_account_id: "123456789012"
+
+# (Optional) Security Hub configuration settings. Default: {}
+# Uncomment "settings:" together with the keys you need; a bare "settings:" with no keys evaluates to null.
+#settings:
+  #enable_default_standards: true             # (Optional) Subscribe the account to the AWS default standards on enablement. Default: true (provider default).
+  #control_finding_generator: "SECURITY_CONTROL" # (Optional) Valid values: "SECURITY_CONTROL" | "STANDARD_CONTROL". Default: provider default.
+  #auto_enable_controls: true                 # (Optional) Automatically enable new controls added to enabled standards. Default: true (provider default).
+  #
+  #organization:                              # (Optional) AWS Organizations integration. Default: {} (disabled).
+  #  delegated: false                         # (Optional) Register organization_account_id as the delegated administrator (management account only). Default: false.
+  #  enabled: false                           # (Optional) Manage the organization configuration (delegated administrator account only). Default: false.
+  #  auto_enable: false                       # (Optional) Auto-enable Security Hub for new member accounts. Must be false with "CENTRAL". Default: false.
+  #  auto_enable_standards: "NONE"            # (Optional) Valid values: "DEFAULT" | "NONE". Must be "NONE" with "CENTRAL". Default: provider default.
+  #  configuration_type: "CENTRAL"            # (Optional) Valid values: "CENTRAL" | "LOCAL". "CENTRAL" requires aggregator.enabled and is required for configuration_policies. Default: unset.
+  #  account_ids:                             # (Optional) Member account IDs for policies with associations.accounts = true. Default: [].
+  #    - "123456789012"
+  #  org_unit_ids:                            # (Optional) OU IDs for policies with associations.org_units = true. Default: [].
+  #    - "ou-abcd-12345678"
+  #  org_unit_names:                          # (Optional) First-level OU names (children of the org root), resolved to IDs; used with associations.org_units = true. Default: [].
+  #    - "Workloads"
+  #
+  #aggregator:                                # (Optional) Cross-region finding aggregator, created in the current (home) region. Default: {} (disabled).
+  #  enabled: false                           # (Optional) Create the finding aggregator. Default: false.
+  #  linking_mode: "ALL_REGIONS"              # (Optional) Valid values: "ALL_REGIONS" | "ALL_REGIONS_EXCEPT_SPECIFIED" | "SPECIFIED_REGIONS" | "NO_REGIONS". Default: "ALL_REGIONS".
+  #  regions:                                 # (Optional) Required for "SPECIFIED_REGIONS" / "ALL_REGIONS_EXCEPT_SPECIFIED". Default: null.
+  #    - "us-west-2"
+  #    - "eu-west-1"
+  #
+  #standards_controls:                        # (Optional) Standards subscriptions for this account, with per-control overrides. Default: [].
+  #  - name: "fsbp"                           # (Required) Unique key for this standard within the module.
+  #    standards_arn: "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0" # (Required) Standard ARN (region-specific).
+  #    controls:                              # (Optional) Per-control association overrides. Default: [].
+  #      - id: "IAM.6"                        # (Required) Security control ID, e.g. "IAM.6", "S3.1".
+  #        status: "DISABLED"                 # (Required) Valid values: "ENABLED" | "DISABLED".
+  #        reason: "Hardware MFA not used"    # (Optional) Required by AWS when status is "DISABLED". Default: null.
+  #
+  #configuration_policies:                    # (Optional) Central configuration policies; created only when organization.configuration_type is "CENTRAL". Default: [].
+  #  - name: "baseline"                       # (Required) Unique policy name.
+  #    description: "Organization baseline"   # (Optional) Policy description. Default: null.
+  #    service_enabled: true                  # (Required) Enable (true) or disable (false) Security Hub in targeted accounts.
+  #    enabled_standard_arns:                 # (Optional) Standards to enable; required when service_enabled is true. Default: null.
+  #      - "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0"
+  #      - "arn:aws:securityhub:us-east-1::standards/cis-aws-foundations-benchmark/v/3.0.0"
+  #    controls_configuration:                # (Optional) Control configuration; required when service_enabled is true. Default: {}.
+  #      #enabled_control_identifiers: ["*"]  # (Optional) Controls to enable; conflicts with disabled_control_identifiers. Default: null.
+  #      disabled_control_identifiers:        # (Optional) Controls to disable; conflicts with enabled_control_identifiers. Default: null.
+  #        - "CloudTrail.2"
+  #      custom_parameters:                   # (Optional) Custom control parameters. Default: [].
+  #        - security_control_id: "ACM.1"     # (Required) Security control ID.
+  #          parameters:                      # (Required) Parameter list.
+  #            - name: "daysToExpiration"     # (Required) Parameter name as defined by the control.
+  #              value_type: "CUSTOM"         # (Required) Valid values: "DEFAULT" | "CUSTOM".
+  #              int: 15                      # (Optional) Exactly one typed value: bool | double | enum | enum_list | int | int_list | string | string_list.
+  #    associations:                          # (Optional) Policy targets. Default: {}.
+  #      root: true                           # (Optional) Attach to the organization root. Default: true.
+  #      accounts: false                      # (Optional) Attach to each organization.account_ids entry. Default: false.
+  #      org_units: false                     # (Optional) Attach to each organization.org_unit_ids / org_unit_names entry. Default: false.
+```
+
+## Generated `terragrunt.hcl`
+
+Scaffold renders the following file. `inputs.yaml` is loaded as `local.local_vars`; optional module
+variables fall back to their defaults through `try()` when the key is absent.
+
 ```hcl
-include {
-  path = find_in_parent_folders()
+locals {
+  local_vars  = yamldecode(file("./inputs.yaml"))
+  spoke_vars  = yamldecode(file(find_in_parent_folders("spoke-inputs.yaml")))
+  region_vars = yamldecode(file(find_in_parent_folders("region-inputs.yaml")))
+  env_vars    = yamldecode(file(find_in_parent_folders("env-inputs.yaml")))
+  global_vars = yamldecode(file(find_in_parent_folders("global-inputs.yaml")))
+
+  local_tags  = jsondecode(file("./local-tags.json"))
+  spoke_tags  = jsondecode(file(find_in_parent_folders("spoke-tags.json")))
+  region_tags = jsondecode(file(find_in_parent_folders("region-tags.json")))
+  env_tags    = jsondecode(file(find_in_parent_folders("env-tags.json")))
+  global_tags = jsondecode(file(find_in_parent_folders("global-tags.json")))
+
+  tags = merge(
+    local.global_tags,
+    local.env_tags,
+    local.region_tags,
+    local.spoke_tags,
+    local.local_tags
+  )
+}
+
+include "root" {
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
-  source = "git::https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup.git?ref=v1.0.0"
+  source = "git::https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup.git?ref=v1.1.4"
 }
 
 inputs = {
-  enabled = true
-  admin_account_id = "123456789012"
-  member_accounts = [
-    "987654321098",
-    "456789012345"
-  ]
-  standards_enabled = {
-    aws-foundational = true
-    pci-dss = true
-    cis-aws-foundations-benchmark = true
-  }
-  findings_notification = {
-    enabled = true
-    sns_topic_arn = "arn:aws:sns:region:account-id:topic-name"
-  }
+  is_hub                  = false
+  org                     = local.env_vars.org
+  spoke_def               = local.spoke_vars.spoke
+  organization_account_id = try(local.local_vars.organization_account_id, "")
+  settings                = try(local.local_vars.settings, {})
+  extra_tags              = local.tags
 }
 ```
 
-## Variables Reference
-| Variable | Type | Description | Required |
-|----------|------|-------------|-----------|
-| enabled | bool | Enable/disable Security Hub | Yes |
-| admin_account_id | string | AWS account ID for Security Hub administrator | Yes |
-| member_accounts | list(string) | List of member account IDs to be configured | No |
-| standards_enabled | map(bool) | Security standards to enable | No |
-| findings_notification | map(any) | Notification configuration for findings | No |
-| settings | map(any) | Security Hub configuration settings | No |
+## Inputs reference
 
-## Settings Variable Structure
-The `settings` variable accepts a YAML structure with the following format:
+| Variable | Type | Default | Source | Description |
+|----------|------|---------|--------|-------------|
+| `settings` | `any` | `{}` | `inputs.yaml` | Security Hub configuration object (see structure above) |
+| `organization_account_id` | `string` | `""` | `inputs.yaml` | Delegated administrator account ID, used with `settings.organization.delegated` |
+| `org` | `object` | — (required) | `env-inputs.yaml` | Organization name/unit and environment name/type |
+| `spoke_def` | `string` | `"001"` | `spoke-inputs.yaml` | 3-digit spoke identifier |
+| `is_hub` | `bool` | `false` | scaffold prompt | Hub or spoke configuration |
+| `extra_tags` | `map(string)` | `{}` | merged tag files | Extra tags applied to resources |
 
-```yaml
-settings:
-  control_finding_generator: "STANDARD_CONTROL"
-  enable_default_standards: true|false
-  organization:
-    enabled: true|false
-    auto_enable: true|false
-    auto_enable_standards: "NONE"|"ALL"
-    configuration_type: "CENTRAL"|"LOCAL"
-    account_ids:
-      - "123456789012"
-      - "098765432109"
-    org_unit_ids:
-      - "ou-1234-5678"
-    org_unit_names:
-      - "Development"
-  aggregator:
-    enabled: true|false
-    linking_mode: "ALL_REGIONS"|"SPECIFIED_REGIONS"
-    regions:
-      - "us-west-2"
-      - "us-east-2"
-  standards_controls: []
-  configuration_policies:
-    - name: "policy_name"
-      description: "Policy description"
-      service_enabled: true|false
-      enabled_standard_arns:
-        - "arn:aws:securityhub:us-west-2::standards/standard_name"
-      controls_configuration:
-        enabled_control_identifiers:
-          - "control_id_1"
-          - "control_id_2"
-        disabled_control_identifiers:
-          - "control_id_3"
-          - "control_id_4"
-      custom_parameters:
-        - security_control_id: "control_id_1"
-          parameters:
-            - name: "parameter_name"
-              value_type: bool|double|enum|enum_list|int|int_list|string|string_list
-              bool: <bool value>
-              double: <double value>
-              enum: <enum value>
-              enum_list: [<enum value1>, <enum value2>]
-              int: <int value>
-              int_list: [<int value1>, <int value2>]
-              string: <string value>
-              string_list: [<string value1>, <string value2>]
-      associations:
-        root: true|false
-        accounts: true|false
-        org_units: true|false
-```
+## Outputs reference
+
+| Output | Description |
+|--------|-------------|
+| `securityhub_arn` | ARN of the Security Hub account resource enabled in the current account and region |
 
 ## Quick Start
 
-1. Add the module to your Terragrunt configuration:
-   ```hcl
-   terraform {
-     source = "git::https://github.com/cloudopsworks/terraform-module-aws-security-hub-setup.git?ref=v1.0.0"
-   }
+1. Create the deployment directory and scaffold the module:
+   ```sh
+   mkdir -p prod/us-east-1/001/security-hub
+   cd prod/us-east-1/001/security-hub
+   terragrunt scaffold github.com/cloudopsworks/terraform-module-aws-security-hub-setup
    ```
 
-2. Configure basic settings:
-   ```hcl
-   inputs = {
-     enabled = true
-     admin_account_id = "your-admin-account-id"
-   }
+2. Enable Security Hub with the default standards by adding to `inputs.yaml`:
+   ```yaml
+   settings:
+     enable_default_standards: true
+     control_finding_generator: "SECURITY_CONTROL"
    ```
 
-3. Initialize and apply:
-   ```bash
-   terragrunt init
+3. Review and apply:
+   ```sh
    terragrunt plan
    terragrunt apply
    ```
 
+4. For organization-wide rollout, follow the [deployment topology](#deployment-topology): designate the
+   delegated administrator from the management account, then apply the aggregator, `CENTRAL` organization
+   configuration, and `configuration_policies` from the delegated administrator account.
+
 
 ## Examples
 
-## Basic Setup
-```hcl
-module "security_hub" {
-  source = "cloudopsworks/security-hub-setup/aws"
-  version = "1.0.0"
+All examples below are `inputs.yaml` contents for a scaffolded deployment.
 
-  enabled = true
-  admin_account_id = "123456789012"
-}
+## 1. Single account with standards and control overrides (LOCAL)
+
+```yaml
+settings:
+  enable_default_standards: false
+  control_finding_generator: "SECURITY_CONTROL"
+  standards_controls:
+    - name: "fsbp"
+      standards_arn: "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0"
+      controls:
+        - id: "IAM.6"
+          status: "DISABLED"
+          reason: "Hardware MFA is not used for the root user in this account"
+    - name: "cis-3"
+      standards_arn: "arn:aws:securityhub:us-east-1::standards/cis-aws-foundations-benchmark/v/3.0.0"
 ```
 
-## Multi-Account Configuration
-```hcl
-module "security_hub_org" {
-  source = "cloudopsworks/security-hub-setup/aws"
-  version = "1.0.0"
+## 2. Management account: designate the delegated administrator
 
-  enabled = true
-  admin_account_id = "123456789012"
-  member_accounts = [
-    "987654321098",
-    "456789012345"
-  ]
-  standards_enabled = {
-    aws-foundational = true
-    pci-dss = true
-  }
-}
+```yaml
+organization_account_id: "111122223333"   # Security / Audit account
+settings:
+  organization:
+    delegated: true
+```
+
+## 3. Delegated administrator: central configuration for the whole organization
+
+```yaml
+settings:
+  control_finding_generator: "SECURITY_CONTROL"
+  aggregator:
+    enabled: true
+    linking_mode: "SPECIFIED_REGIONS"
+    regions:
+      - "us-west-2"
+      - "eu-west-1"
+  organization:
+    enabled: true
+    auto_enable: false
+    auto_enable_standards: "NONE"
+    configuration_type: "CENTRAL"
+  configuration_policies:
+    - name: "org-baseline"
+      description: "FSBP + CIS for every account in the organization"
+      service_enabled: true
+      enabled_standard_arns:
+        - "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0"
+        - "arn:aws:securityhub:us-east-1::standards/cis-aws-foundations-benchmark/v/3.0.0"
+      controls_configuration:
+        disabled_control_identifiers:
+          - "CloudTrail.2"
+        custom_parameters:
+          - security_control_id: "ACM.1"
+            parameters:
+              - name: "daysToExpiration"
+                value_type: "CUSTOM"
+                int: 30
+      associations:
+        root: true
+```
+
+## 4. Central policies scoped to OUs and specific accounts
+
+```yaml
+settings:
+  aggregator:
+    enabled: true
+  organization:
+    enabled: true
+    auto_enable: false
+    auto_enable_standards: "NONE"
+    configuration_type: "CENTRAL"
+    org_unit_names:
+      - "Workloads"
+    org_unit_ids:
+      - "ou-abcd-12345678"
+    account_ids:
+      - "444455556666"
+  configuration_policies:
+    - name: "workloads"
+      service_enabled: true
+      enabled_standard_arns:
+        - "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0"
+      controls_configuration:
+        enabled_control_identifiers: ["*"]
+      associations:
+        root: false
+        org_units: true
+    - name: "sandbox-disabled"
+      description: "Security Hub disabled for sandbox accounts"
+      service_enabled: false
+      associations:
+        root: false
+        accounts: true
 ```
 
 
@@ -231,26 +407,26 @@ Available targets:
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.3 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.4 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.35 |
 
 ## Providers
 
 | Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.4 |
+| ---- | ------- |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.66.0 |
 
 ## Modules
 
 | Name | Source | Version |
-|------|--------|---------|
-| <a name="module_tags"></a> [tags](#module\_tags) | cloudopsworks/tags/local | 1.0.9 |
+| ---- | ------ | ------- |
+| <a name="module_tags"></a> [tags](#module\_tags) | cloudopsworks/tags/local | 1.0.10 |
 
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [aws_securityhub_account.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/securityhub_account) | resource |
 | [aws_securityhub_configuration_policy.central_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/securityhub_configuration_policy) | resource |
 | [aws_securityhub_configuration_policy_association.central_policy_acct](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/securityhub_configuration_policy_association) | resource |
@@ -269,19 +445,19 @@ Available targets:
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_extra_tags"></a> [extra\_tags](#input\_extra\_tags) | Extra tags to add to the resources | `map(string)` | `{}` | no |
 | <a name="input_is_hub"></a> [is\_hub](#input\_is\_hub) | Is this a hub or spoke configuration? | `bool` | `false` | no |
 | <a name="input_org"></a> [org](#input\_org) | Organization details | <pre>object({<br/>    organization_name = string<br/>    organization_unit = string<br/>    environment_type  = string<br/>    environment_name  = string<br/>  })</pre> | n/a | yes |
-| <a name="input_organization_account_id"></a> [organization\_account\_id](#input\_organization\_account\_id) | The AWS account ID of the Security Hub administrator account | `string` | `""` | no |
-| <a name="input_settings"></a> [settings](#input\_settings) | Settings for the configuration recorder | `any` | `{}` | no |
+| <a name="input_organization_account_id"></a> [organization\_account\_id](#input\_organization\_account\_id) | (Optional) AWS account ID of the Security Hub delegated administrator account, used when settings.organization.delegated is true. Default: "". | `string` | `""` | no |
+| <a name="input_settings"></a> [settings](#input\_settings) | (Optional) Security Hub configuration settings: account enablement, organization, aggregator, standards/controls and central configuration policies. Default: {}. | `any` | `{}` | no |
 | <a name="input_spoke_def"></a> [spoke\_def](#input\_spoke\_def) | Spoke ID Number, must be a 3 digit number | `string` | `"001"` | no |
 
 ## Outputs
 
 | Name | Description |
-|------|-------------|
-| <a name="output_securityhub_arn"></a> [securityhub\_arn](#output\_securityhub\_arn) | n/a |
+| ---- | ----------- |
+| <a name="output_securityhub_arn"></a> [securityhub\_arn](#output\_securityhub\_arn) | ARN of the Security Hub account resource (hub) enabled in the current account and region. |
 
 
 
